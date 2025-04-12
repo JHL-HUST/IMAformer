@@ -135,61 +135,6 @@ val_loader = val_datamgr.get_data_loader(val_file, aug=False)
 # # summary(model,[5,3,224,224])
 
 
-def cache_model(support,query,model,mask_ratio=[0, 0.25, 0.5, 0.75],modal='mean'):
-    
-    with torch.no_grad():
-        # Data augmentation for the cache model
-        for i, mask in enumerate(mask_ratio):
-            
-            support_f_m, _, _ = model.forward_encoder(support,mask_ratio=mask)
-            query_f_m, _, _ = model.forward_encoder(query,mask_ratio=mask)
-            support_cls_token_m = support_f_m[:,0,:]                # 把cls_token分离出来
-            query_cls_token_m = query_f_m[:,0,:]
-            if modal == 'mean':
-                support_f_m = support_f_m[:,1:,:].mean(dim=1,keepdim=True)
-                query_f_m = query_f_m[:,1:,:].mean(dim=1,keepdim=True)
-            else:
-                support_f_m = support_f_m[:,1:,:]
-                query_f_m = query_f_m[:,1:,:]
-            if i==0:
-                support_f = support_f_m 
-                query_f = query_f_m 
-                support_cls_token = support_cls_token_m
-                query_cls_token = query_cls_token_m
-            else:
-                support_f = torch.cat((support_f,support_f_m),1)
-                query_f = torch.cat((query_f,query_f_m),1) 
-                support_cls_token = torch.cat((support_cls_token,support_cls_token_m),1)
-                query_cls_token = torch.cat((query_cls_token,query_cls_token_m),1) 
-
-    if modal == 'mean':
-        support_f = support_f.mean(dim=1).squeeze(1)   
-        query_f = query_f.mean(dim=1).squeeze(1) 
-
-
-    # support_cls_token = support_cls_token.mean(dim=1)  
-    # query_cls_token = query_cls_token.mean(dim=1) 
-
-    # 归一化
-    # support_f_m = support_f.mean(dim=-1, keepdim=True)
-    # support_f = support_f - support_f_m
-    support_f /= support_f.norm(dim=-1, keepdim=True)
-    support_cls_token /= support_cls_token.norm(dim=-1, keepdim=True)
-    # query_f_m = query_f.mean(dim=-1, keepdim=True)
-    # query_f = query_f - query_f_m
-    query_f /= query_f.norm(dim=-1, keepdim=True)
-    query_cls_token /= query_cls_token.norm(dim=-1, keepdim=True)
-
-    return support_f, support_cls_token, query_f, query_cls_token
-
-def catch_feature(query, model, mask_ratio=0):
-
-    with torch.no_grad():    
-
-        feature, _, _ = model.forward_encoder(query,mask_ratio=mask_ratio)
-
-    return feature[:,0,:],feature[:,1:,:]
-
 class AverageMeter(object):
 	"""Computes and stores the average and current value"""
 	def __init__(self):
@@ -244,27 +189,7 @@ def train(train_loader,params,model,optimizer,loss_fn,epoch_index):
         # query = query.reshape(-1,c,h,w)
         # query = query.cuda()
 
-        # ---------图像组合--------------
-        
-        #--------方法2：将support取50%，query填充其掩码部分，互补拼接-----------
-        # query_patch = patchify(query)          # torch.Size([75, 196, 768])
-        # support_patch = patchify(support)  
-        # imags = random_compose(query_patch,support_patch)
-        # query_patch, _, _ = random_masking(query_patch)         # torch.Size([75, 98, 768])
-        # support_patch, _, _ = random_masking(support_patch)
-        # # print(query_patch.shape)
-        # # print(support_patch.shape)
-        # imags = torch.cat((query_patch.unsqueeze(1).repeat(1,params.train_n_way*params.n_shot,1,1), support_patch.unsqueeze(0).repeat(params.train_n_way*params.n_query,1,1,1)), dim=2)
-        # # print(imags.shape)
-        # imags = imags.reshape(-1,imags.shape[2],imags.shape[3])
-        # imags = unpatchify(imags)
-        # print(imags.shape)
-        # label = torch.eq(q_values.unsqueeze(1).repeat(1,params.train_n_way*params.n_shot),cache_values.unsqueeze(0).repeat(params.train_n_way*params.n_query,1)).type(torch.float32)
-        # label = label.reshape(-1)
-        # label = torch.zeros(params.val_n_way*params.train_n_way*params.train_n_way)
-        # positive = [n*5 for n in [6*num for num in range(5)]]
-        # # label[0::params.val_n_way*params.train_n_way] = 1
-        # label[positive] = 1
+       
         label = np.repeat(range(params.val_n_way),params.n_query)
         label = torch.from_numpy(np.array(label))
         label = label.cuda()
@@ -346,27 +271,7 @@ def validate(val_loader,params,model,epoch_index,best_prec1,loss_fn):
         # query = query.reshape(-1,c,h,w)
         # query = query.cuda()
 
-        # ---------图像组合--------------
         
-        #--------方法2：将support取50%，query填充其掩码部分，互补拼接-----------
-        # query_patch = patchify(query)          # torch.Size([75, 196, 768])
-        # support_patch = patchify(support)  
-        # imags = random_compose(query_patch,support_patch)
-        # query_patch, _, _ = random_masking(query_patch)         # torch.Size([75, 98, 768])
-        # support_patch, _, _ = random_masking(support_patch)
-        # # print(query_patch.shape)
-        # # print(support_patch.shape)
-        # imags = torch.cat((query_patch.unsqueeze(1).repeat(1,params.train_n_way*params.n_shot,1,1), support_patch.unsqueeze(0).repeat(params.train_n_way*params.n_query,1,1,1)), dim=2)
-        # # print(imags.shape)
-        # imags = imags.reshape(-1,imags.shape[2],imags.shape[3])
-        # imags = unpatchify(imags)
-        # print(imags.shape)
-        # label = torch.eq(q_values.unsqueeze(1).repeat(1,params.train_n_way*params.n_shot),cache_values.unsqueeze(0).repeat(params.train_n_way*params.n_query,1)).type(torch.float32)
-        # label = label.reshape(-1)
-        # label = torch.zeros(params.val_n_way*params.train_n_way*params.train_n_way)
-        # positive = [n*5 for n in [6*num for num in range(5)]]
-        # # label[0::params.val_n_way*params.train_n_way] = 1
-        # label[positive] = 1
         label = np.repeat(range(params.val_n_way),params.n_query)
         label = torch.from_numpy(np.array(label))
         label = label.cuda()
@@ -488,31 +393,7 @@ def main():
             if params.ft and 'blocks.{}'.format(11-i) in _:
                 log(_)
                 p.requires_grad = True
-        # if params.ft and 'blocks.4' in _:
-        #     log(_)
-        #     p.requires_grad = True
-        # if params.ft and 'blocks.5' in _:
-        #     log(_)
-        #     p.requires_grad = True
-        # if params.ft and 'blocks.6' in _:
-        #     log(_)
-        #     p.requires_grad = True
-        # if params.ft and 'blocks.7' in _:
-        #     log(_)
-        #     p.requires_grad = True
-        # if params.ft and 'blocks.8' in _:
-        #     log(_)
-        #     p.requires_grad = True
-        # if params.ft and 'blocks.9' in _:
-        #     log(_)
-        #     p.requires_grad = True
-        # if params.ft and 'blocks.10' in _:
-        #     log(_)
-        #     p.requires_grad = True
-        # if params.ft and 'blocks.11' in _:
-        #     log(_)
-        #     p.requires_grad = True
-            # parameters.append(_)
+
     for _, p in model.head.named_parameters():
         p.requires_grad = True
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
